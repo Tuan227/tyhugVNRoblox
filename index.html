@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sketch Editor with Crop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Cropper.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <style>
+        body { background-color: #f3f4f6; min-height: 100vh; }
+        .canvas-container {
+            max-width: 100%;
+            background: #e5e7eb;
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 400px;
+            position: relative;
+        }
+        canvas, .cropper-container { max-width: 100%; height: auto; }
+        #imageToCrop { max-width: 100%; display: block; }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow-xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Sketch & Crop Editor</h1>
+            <p class="text-gray-500">Cắt ảnh và biến thành tranh phác thảo</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Sidebar -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- Upload -->
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <label class="block text-sm font-semibold text-blue-800 mb-2">1. Chọn hình ảnh</label>
+                    <input type="file" id="uploadInput" accept="image/*" class="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer" />
+                </div>
+
+                <!-- Crop Controls -->
+                <div id="cropControls" class="hidden space-y-3">
+                    <label class="block text-sm font-semibold text-gray-700">2. Điều chỉnh vùng cắt</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="setAspectRatio(1)" class="text-xs bg-gray-100 hover:bg-gray-200 py-2 rounded">1:1</button>
+                        <button onclick="setAspectRatio(16/9)" class="text-xs bg-gray-100 hover:bg-gray-200 py-2 rounded">16:9</button>
+                        <button onclick="setAspectRatio(NaN)" class="text-xs bg-gray-100 hover:bg-gray-200 py-2 rounded">Tự do</button>
+                        <button onclick="rotateImage()" class="text-xs bg-gray-100 hover:bg-gray-200 py-2 rounded">Xoay 90°</button>
+                    </div>
+                    <button id="applyCropBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition shadow-md">
+                        Xác nhận cắt ảnh
+                    </button>
+                </div>
+
+                <!-- Sketch Controls -->
+                <div id="sketchControls" class="hidden space-y-5 border-t pt-4">
+                    <label class="block text-sm font-semibold text-gray-700">3. Hiệu ứng phác thảo</label>
+                    
+                    <div>
+                        <div class="flex justify-between text-xs mb-1 text-gray-500">Độ chi tiết <span id="blurVal">5</span></div>
+                        <input type="range" id="blurRange" min="1" max="25" value="5" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs mb-1 text-gray-500">Độ sáng <span id="brightVal">100</span></div>
+                        <input type="range" id="brightRange" min="50" max="180" value="100" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    </div>
+
+                    <div class="pt-2 flex flex-col gap-2">
+                        <button id="downloadBtn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            Lưu ảnh phác thảo
+                        </button>
+                        <button id="reCropBtn" class="w-full border border-gray-300 hover:bg-gray-50 text-gray-600 py-2 rounded-lg text-sm">
+                            Cắt lại ảnh
+                        </button>
+                    </div>
+                </div>
+
+                <div id="status" class="flex items-center justify-center space-x-2 text-xs text-gray-400">
+                    <div class="loader" id="spinner"></div>
+                    <span id="statusText">Đang đợi ảnh...</span>
+                </div>
+            </div>
+
+            <!-- Main Area -->
+            <div class="lg:col-span-3">
+                <div class="canvas-container" id="editorContainer">
+                    <!-- Placeholder -->
+                    <div id="placeholder" class="text-gray-300 flex flex-col items-center">
+                        <svg class="w-20 h-20 mb-2 opacity-10" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd"></path></svg>
+                        <span>Vui lòng tải ảnh lên để bắt đầu</span>
+                    </div>
+                    
+                    <!-- Cropper Image -->
+                    <div id="cropWrapper" class="hidden w-full h-full">
+                        <img id="imageToCrop" src="">
+                    </div>
+
+                    <!-- Final Canvas -->
+                    <canvas id="mainCanvas" class="hidden"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cropper.js JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+    <script>
+        const uploadInput = document.getElementById('uploadInput');
+        const imgToCrop = document.getElementById('imageToCrop');
+        const cropWrapper = document.getElementById('cropWrapper');
+        const mainCanvas = document.getElementById('mainCanvas');
+        const ctx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const cropControls = document.getElementById('cropControls');
+        const sketchControls = document.getElementById('sketchControls');
+        const applyCropBtn = document.getElementById('applyCropBtn');
+        const reCropBtn = document.getElementById('reCropBtn');
+        const placeholder = document.getElementById('placeholder');
+        
+        let cropper = null;
+        let croppedImageData = null; // Lưu lại bản đã cắt để áp filter
+
+        // 1. Tải ảnh và khởi tạo Cropper
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                if (cropper) cropper.destroy();
+                
+                imgToCrop.src = event.target.result;
+                placeholder.classList.add('hidden');
+                mainCanvas.classList.add('hidden');
+                cropWrapper.classList.remove('hidden');
+                cropControls.classList.remove('hidden');
+                sketchControls.classList.add('hidden');
+                
+                cropper = new Cropper(imgToCrop, {
+                    viewMode: 1,
+                    autoCropArea: 1,
+                    responsive: true,
+                });
+                
+                document.getElementById('statusText').innerText = 'Hãy cắt khung hình ưa thích';
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Điều khiển Cropper
+        function setAspectRatio(ratio) { if (cropper) cropper.setAspectRatio(ratio); }
+        function rotateImage() { if (cropper) cropper.rotate(90); }
+
+        // 2. Xác nhận cắt và chuyển sang chế độ Filter
+        applyCropBtn.addEventListener('click', () => {
+            if (!cropper) return;
+            
+            // Lấy canvas đã cắt
+            croppedImageData = cropper.getCroppedCanvas({
+                maxWidth: 2048,
+                maxHeight: 2048,
+            });
+
+            // Ẩn cropper, hiện canvas kết quả
+            cropWrapper.classList.add('hidden');
+            cropControls.classList.add('hidden');
+            mainCanvas.classList.remove('hidden');
+            sketchControls.classList.remove('hidden');
+            
+            processSketch();
+        });
+
+        // 3. Quay lại bước cắt ảnh
+        reCropBtn.addEventListener('click', () => {
+            mainCanvas.classList.add('hidden');
+            sketchControls.classList.add('hidden');
+            cropWrapper.classList.remove('hidden');
+            cropControls.classList.remove('hidden');
+            document.getElementById('statusText').innerText = 'Điều chỉnh lại vùng cắt';
+        });
+
+        // 4. Xử lý hiệu ứng Sketch
+        const blurRange = document.getElementById('blurRange');
+        const brightRange = document.getElementById('brightRange');
+
+        [blurRange, brightRange].forEach(input => {
+            input.addEventListener('input', () => {
+                document.getElementById(input.id.replace('Range', 'Val')).innerText = input.value;
+                processSketch();
+            });
+        });
+
+        function processSketch() {
+            if (!croppedImageData) return;
+            
+            const spinner = document.getElementById('spinner');
+            const statusText = document.getElementById('statusText');
+            spinner.style.display = 'block';
+            statusText.innerText = 'Đang vẽ phác thảo...';
+
+            // Timeout để tránh block UI thread
+            setTimeout(() => {
+                mainCanvas.width = croppedImageData.width;
+                mainCanvas.height = croppedImageData.height;
+                
+                // Vẽ lớp grayscale gốc
+                ctx.filter = `grayscale(100%) brightness(${brightRange.value}%)`;
+                ctx.drawImage(croppedImageData, 0, 0);
+                const grayData = ctx.getImageData(0, 0, mainCanvas.width, mainCanvas.height);
+                
+                // Tạo lớp inverted + blurred
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = mainCanvas.width;
+                offCanvas.height = mainCanvas.height;
+                const offCtx = offCanvas.getContext('2d');
+                offCtx.filter = `grayscale(100%) invert(100%) blur(${blurRange.value}px)`;
+                offCtx.drawImage(croppedImageData, 0, 0);
+                const invBlurData = offCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height);
+                
+                const finalData = ctx.createImageData(mainCanvas.width, mainCanvas.height);
+                
+                // Blend: Color Dodge
+                for (let i = 0; i < grayData.data.length; i += 4) {
+                    for (let j = 0; j < 3; j++) {
+                        const a = grayData.data[i + j];
+                        const b = invBlurData.data[i + j];
+                        finalData.data[i + j] = b === 255 ? 255 : Math.min(255, (a * 255) / (255 - b));
+                    }
+                    finalData.data[i + 3] = 255;
+                }
+                
+                ctx.filter = 'none';
+                ctx.putImageData(finalData, 0, 0);
+                
+                spinner.style.display = 'none';
+                statusText.innerText = 'Hoàn tất';
+            }, 30);
+        }
+
+        // Tải xuống
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'sketch_crop.png';
+            link.href = mainCanvas.toDataURL('image/png');
+            link.click();
+        });
+    </script>
+</body>
+</html>
